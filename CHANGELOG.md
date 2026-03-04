@@ -2,6 +2,10 @@
 
 All notable changes to Kubeli will be documented in this file.
 
+## [0.3.55] - 2026-03-04
+
+- Fixed macOS crash when quitting via Cmd+Q and system tray
+
 ## [0.3.54] - 2026-03-04
 
 - Fixed main window crashing on close by hiding to system tray instead (macOS)
