@@ -51,7 +51,6 @@ make build
 |---------|-------------|
 | `make release` | Release via CI: version bump, changelog, commit, tag push → CI builds all platforms |
 | `make build-deploy` | Alias for `make release` |
-| `make build-deploy-legacy` | (Legacy) Build all platforms locally, deploy, and create GitHub release |
 
 The release flow: `make release` → tag push triggers GitHub Actions → builds macOS (ARM + x86), Windows, Linux → waits for manual approval → deploys to FTP + publishes GitHub Release.
 
@@ -85,14 +84,21 @@ Kubeli/
 │   ├── App.tsx
 │   ├── main.tsx
 │   ├── components/         # React components
+│   │   ├── features/       # AI, Dashboard, Home, Logs, Resources, Terminal, etc.
+│   │   ├── layout/         # Sidebar, Tabbar, Titlebar
+│   │   └── ui/             # Radix UI components
 │   └── lib/
+│       ├── hooks/          # Custom React hooks
 │       ├── stores/         # Zustand stores
 │       ├── tauri/          # Tauri command bindings
 │       └── types/          # TypeScript types
 ├── src-tauri/              # Tauri/Rust backend
 │   └── src/
 │       ├── commands/       # Tauri command handlers
-│       └── k8s/            # Kubernetes client logic
+│       ├── k8s/            # Kubernetes client logic
+│       ├── ai/             # AI assistant integration
+│       └── mcp/            # MCP server
+├── web/                    # Landing page (Astro)
 └── Makefile                # Development shortcuts
 ```
 
@@ -228,6 +234,7 @@ This project includes custom Claude skills for code quality based on industry be
 |-------|---------|-------|
 | `/software-design-review` | Analyzes code against 15 Ousterhout principles | `/software-design-review src/lib/stores/cluster-store.ts` |
 | `/refactor` | Strategic refactoring with safety-first approach | `/refactor src/lib/stores/cluster-store.ts` |
+| `/humanizer` | Remove AI writing patterns from text | `/humanizer` |
 
 ### `/software-design-review` (Analysis)
 
@@ -257,6 +264,18 @@ Key rules enforced:
 - Boy Scout Rule: Leave code cleaner than you found it
 
 ---
+
+### `/humanizer` (Writing Quality)
+
+Detects and removes 24 common AI writing patterns (based on Wikipedia's "Signs of AI writing").
+Use `/humanizer` when writing or editing:
+
+- **README, CHANGELOG, PR descriptions** - user-facing documentation
+- **Landing page copy** (`web/`) - marketing text on kubeli.dev
+- **Release notes** (`.release-notes.md`) - announcement text
+- **CONTRIBUTING, SECURITY, AI_POLICY** - community-facing docs
+
+Not needed for code comments, commit messages, or internal CLAUDE.md notes.
 
 ## Git Commit Guidelines
 
