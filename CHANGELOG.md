@@ -2,6 +2,11 @@
 
 All notable changes to Kubeli will be documented in this file.
 
+## [0.3.64] - 2026-03-22
+
+- Fixed GBM EGL display crash on NVIDIA Wayland (Linux)
+- Fixed npm and Cargo audit security vulnerabilities
+
 ## [0.3.63] - 2026-03-17
 
 - Fixed blurry Windows app icon on 4K / high-DPI screens
