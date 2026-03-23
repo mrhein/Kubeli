@@ -55,7 +55,7 @@ export function ArgoCDHistoryTab({ name, namespace }: ArgoCDHistoryTabProps) {
     try {
       const entries = await getArgoCDApplicationHistory(name, namespace);
       // Show newest first
-      setHistory(entries.reverse());
+      setHistory([...entries].reverse());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

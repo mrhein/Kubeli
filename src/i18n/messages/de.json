@@ -132,7 +132,7 @@
     "runtimeClasses": "Laufzeitklassen",
     "mutatingWebhooks": "Mutating Webhooks",
     "validatingWebhooks": "Validating Webhooks",
-    "applications": "Applications",
+    "applications": "Anwendungen",
     "soon": "Bald"
   },
   "cluster": {
@@ -336,7 +336,7 @@
     "uninstalled": "Deinstalliert"
   },
   "argocd": {
-    "applications": "Applications",
+    "applications": "Anwendungen",
     "synced": "Synchronisiert",
     "outOfSync": "Nicht synchron",
     "healthy": "Gesund",
@@ -351,7 +351,7 @@
     "historySource": "Quelle",
     "historyPath": "Pfad",
     "historyTargetRev": "Ziel-Rev",
-    "historyDeployed": "Deployed",
+    "historyDeployed": "Bereitgestellt",
     "historyActions": "Aktionen",
     "historyCurrent": "Aktuell",
     "rollback": "Rollback",

@@ -10,7 +10,9 @@ import {
 } from "./badgeConfig";
 import { getStatusBadgeToneClass } from "./statusBadgeStyles";
 
-export function ArgoCDSyncStatusBadge({ status }: { status: string }) {
+import type { ArgoCDSyncStatus } from "@/lib/types/kubernetes";
+
+export function ArgoCDSyncStatusBadge({ status }: { status: ArgoCDSyncStatus }) {
   const tArgoCD = useTranslations("argocd");
   const config = getStatusBadgeConfig(argoCDSyncStatusConfig, status);
   const label = config

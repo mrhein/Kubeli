@@ -163,12 +163,14 @@ impl OidcFlowManager {
             .await
             .map_err(|e| format!("Failed to refresh OIDC token: {}", e))?;
 
-        let id_token = token_response
+        let id_token_obj = token_response
             .extra_fields()
             .id_token()
-            .ok_or_else(|| "OIDC provider did not return an id_token on refresh".to_string())?
-            .to_string();
+            .ok_or_else(|| "OIDC provider did not return an id_token on refresh".to_string())?;
 
+        // Refreshed tokens may omit the nonce claim (Keycloak does this per OIDC spec).
+        // Signature + audience + issuer are still validated by the K8s API server on each request.
+        let id_token = id_token_obj.to_string();
         let expires_at = parse_jwt_expiry(&id_token)?;
         let next_refresh_token = token_response
             .refresh_token()
