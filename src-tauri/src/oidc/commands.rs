@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use tauri::State;
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_store::StoreExt;
 
 use super::config::OidcExecConfig;
 use super::flow::OidcFlowManager;
@@ -136,7 +135,7 @@ pub fn oidc_get_token_status(
 }
 
 fn persist_tokens(
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
     oidc_state: &OidcState,
     issuer: &str,
     client_id: &str,
@@ -147,13 +146,10 @@ fn persist_tokens(
         .store_tokens(issuer, client_id, tokens.clone());
 
     if let Some(ref refresh_token) = tokens.refresh_token {
-        if let Ok(store) = app.store("oidc-tokens.json") {
-            let _ = OidcTokenStore::save_refresh_token(&store, issuer, client_id, refresh_token);
-        }
+        OidcTokenStore::save_refresh_token(issuer, client_id, refresh_token);
     }
 }
 
-fn load_refresh_token(app: &tauri::AppHandle, issuer: &str, client_id: &str) -> Option<String> {
-    let store = app.store("oidc-tokens.json").ok()?;
-    OidcTokenStore::load_refresh_token(&store, issuer, client_id)
+fn load_refresh_token(_app: &tauri::AppHandle, issuer: &str, client_id: &str) -> Option<String> {
+    OidcTokenStore::load_refresh_token(issuer, client_id)
 }

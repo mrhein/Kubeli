@@ -46,28 +46,30 @@ impl OidcTokenStore {
         }
     }
 
-    pub fn save_refresh_token(
-        store: &tauri_plugin_store::Store<tauri::Wry>,
-        issuer: &str,
-        client_id: &str,
-        refresh_token: &str,
-    ) -> Result<(), String> {
-        let key = format!("oidc_refresh_{}", Self::cache_key(issuer, client_id));
-        store.set(key, serde_json::Value::String(refresh_token.to_string()));
-        store
-            .save()
-            .map_err(|e| format!("Failed to save refresh token: {}", e))
+    pub fn save_refresh_token(issuer: &str, client_id: &str, refresh_token: &str) {
+        let service = keyring_service(issuer, client_id);
+        let entry = keyring::Entry::new(&service, "refresh_token");
+        if let Ok(entry) = entry {
+            let _ = entry.set_password(refresh_token);
+        }
     }
 
-    pub fn load_refresh_token(
-        store: &tauri_plugin_store::Store<tauri::Wry>,
-        issuer: &str,
-        client_id: &str,
-    ) -> Option<String> {
-        let key = format!("oidc_refresh_{}", Self::cache_key(issuer, client_id));
-        let value = store.get(&key)?;
-        value.as_str().map(|s| s.to_string())
+    pub fn load_refresh_token(issuer: &str, client_id: &str) -> Option<String> {
+        let service = keyring_service(issuer, client_id);
+        let entry = keyring::Entry::new(&service, "refresh_token").ok()?;
+        entry.get_password().ok()
     }
+
+    pub fn delete_refresh_token(issuer: &str, client_id: &str) {
+        let service = keyring_service(issuer, client_id);
+        if let Ok(entry) = keyring::Entry::new(&service, "refresh_token") {
+            let _ = entry.delete_credential();
+        }
+    }
+}
+
+fn keyring_service(issuer: &str, client_id: &str) -> String {
+    format!("kubeli-oidc:{}:{}", issuer, client_id)
 }
 
 impl Default for OidcTokenStore {

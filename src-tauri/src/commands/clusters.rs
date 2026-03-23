@@ -502,33 +502,37 @@ async fn resolve_oidc_token(
         return Some(token);
     }
 
-    let refresh_token = {
-        let store = app.store("oidc-tokens.json").ok()?;
-        crate::oidc::store::OidcTokenStore::load_refresh_token(
-            &store,
-            &config.issuer_url,
-            &config.client_id,
-        )
-    };
+    let refresh_token = crate::oidc::store::OidcTokenStore::load_refresh_token(
+        &config.issuer_url,
+        &config.client_id,
+    );
 
     if let Some(ref rt) = refresh_token {
-        if let Ok(tokens) = oidc_state.flow_manager.refresh_token(config, rt).await {
-            oidc_state.token_store.store_tokens(
-                &config.issuer_url,
-                &config.client_id,
-                tokens.clone(),
-            );
-            if let Some(ref new_rt) = tokens.refresh_token {
-                if let Ok(store) = app.store("oidc-tokens.json") {
-                    let _ = crate::oidc::store::OidcTokenStore::save_refresh_token(
-                        &store,
+        match oidc_state.flow_manager.refresh_token(config, rt).await {
+            Ok(tokens) => {
+                oidc_state.token_store.store_tokens(
+                    &config.issuer_url,
+                    &config.client_id,
+                    tokens.clone(),
+                );
+                if let Some(ref new_rt) = tokens.refresh_token {
+                    crate::oidc::store::OidcTokenStore::save_refresh_token(
                         &config.issuer_url,
                         &config.client_id,
                         new_rt,
                     );
                 }
+                return Some(tokens.id_token);
             }
-            return Some(tokens.id_token);
+            Err(_) => {
+                oidc_state
+                    .token_store
+                    .clear(&config.issuer_url, &config.client_id);
+                crate::oidc::store::OidcTokenStore::delete_refresh_token(
+                    &config.issuer_url,
+                    &config.client_id,
+                );
+            }
         }
     }
 

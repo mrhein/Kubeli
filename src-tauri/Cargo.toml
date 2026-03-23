@@ -55,6 +55,7 @@ serde_yaml = "0.9"
 
 # OIDC Authentication
 openidconnect = "4.0"
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 
 # Cryptography & Security
 rustls = { version = "0.23", features = ["ring"] }
