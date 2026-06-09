@@ -52,13 +52,18 @@ fn extract_all_flag_values(args: &[String], flag: &str) -> Vec<String> {
         }
 
         if arg == flag {
+            // A following token that is itself a flag (starts with "--") means
+            // this flag had no value in a malformed kubeconfig; skip it rather
+            // than swallowing the next flag as a bogus value.
             if let Some(next) = args.get(idx + 1) {
-                if !next.is_empty() {
+                if !next.is_empty() && !next.starts_with("--") {
                     values.push(next.clone());
+                    idx += 2;
+                    continue;
                 }
-                idx += 2;
-                continue;
             }
+            idx += 1;
+            continue;
         }
 
         idx += 1;
@@ -151,6 +156,32 @@ users:
           - oidc-login
           - get-token
           - --oidc-issuer-url=https://issuer.example.com
+"#,
+        );
+
+        assert!(detect_oidc_exec(&kubeconfig, "oidc-user").is_none());
+    }
+
+    #[test]
+    fn does_not_swallow_following_flag_as_value() {
+        // --oidc-issuer-url has no value and is immediately followed by another
+        // flag. The issuer must be treated as missing, not set to the next flag.
+        let kubeconfig = kubeconfig_from_yaml(
+            r#"
+apiVersion: v1
+kind: Config
+users:
+  - name: oidc-user
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1beta1
+        command: kubectl
+        args:
+          - oidc-login
+          - get-token
+          - --oidc-issuer-url
+          - --oidc-client-id
+          - desktop-client
 "#,
         );
 

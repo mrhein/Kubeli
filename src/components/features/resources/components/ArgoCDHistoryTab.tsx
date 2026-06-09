@@ -71,7 +71,7 @@ export function ArgoCDHistoryTab({ name, namespace }: ArgoCDHistoryTabProps) {
     if (!rollbackEntry) return;
     setIsRollingBack(true);
     try {
-      await rollbackArgoCDApplication(name, namespace, rollbackEntry.revision);
+      await rollbackArgoCDApplication(name, namespace, rollbackEntry.id);
       toast.success(t("argocd.rollbackSuccess", { revision: shortenRevision(rollbackEntry.revision) }));
       setRollbackEntry(null);
       fetchHistory();

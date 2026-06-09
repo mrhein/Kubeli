@@ -119,8 +119,13 @@ fn parse_argocd_application(obj: DynamicObject) -> Option<ArgoCDApplicationInfo>
         .unwrap_or("default")
         .to_string();
 
-    // Extract source info
-    let source = spec.get("source");
+    // Extract source info (fall back to the first of spec.sources for
+    // multi-source Applications, which omit the singular spec.source).
+    let source = spec.get("source").or_else(|| {
+        spec.get("sources")
+            .and_then(|s| s.as_array())
+            .and_then(|a| a.first())
+    });
     let repo_url = source
         .and_then(|s| s.get("repoURL"))
         .and_then(|v| v.as_str())
@@ -339,7 +344,12 @@ pub async fn get_argocd_application_history(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            let source = entry.get("source");
+            let source = entry.get("source").or_else(|| {
+                entry
+                    .get("sources")
+                    .and_then(|s| s.as_array())
+                    .and_then(|a| a.first())
+            });
             let source_repo = source
                 .and_then(|s| s.get("repoURL"))
                 .and_then(|v| v.as_str())
@@ -375,27 +385,63 @@ pub async fn get_argocd_application_history(
     Ok(entries)
 }
 
-/// Rollback an ArgoCD Application to a specific revision
+/// Rollback an ArgoCD Application to a specific deployment history record.
+///
+/// `id` is the ArgoCD `status.history[].id` of the target deployment (not the
+/// git revision), matching `argocd app rollback`. We look the record up so we
+/// can restore the exact source(s) that were deployed — repo/path/chart/
+/// targetRevision/helm values — rather than syncing only the git revision
+/// against the current spec.source (which is wrong for Helm, path-changed, or
+/// multi-source Applications).
 #[command]
 pub async fn rollback_argocd_application(
     state: State<'_, AppState>,
     name: String,
     namespace: String,
-    revision: String,
+    id: i64,
 ) -> Result<(), String> {
     let client = state.k8s.get_client().await.map_err(|e| e.to_string())?;
 
     let ar = argocd_api_resource();
     let api: Api<DynamicObject> = Api::namespaced_with(client, &namespace, &ar);
 
+    let app = api
+        .get(&name)
+        .await
+        .map_err(|e| format!("Failed to get application: {}", e))?;
+
+    let entry = app
+        .data
+        .get("status")
+        .and_then(|s| s.get("history"))
+        .and_then(|h| h.as_array())
+        .and_then(|entries| {
+            entries
+                .iter()
+                .find(|e| e.get("id").and_then(|v| v.as_i64()) == Some(id))
+        })
+        .ok_or_else(|| format!("History record {} not found for application {}", id, name))?;
+
+    let mut sync = json!({
+        "revision": entry.get("revision").and_then(|v| v.as_str()).unwrap_or_default(),
+    });
+    // Restore the historical source(s) so the rollback reproduces that exact
+    // deployment, not just its revision against the current spec.
+    if let Some(source) = entry.get("source") {
+        sync["source"] = source.clone();
+    } else if let Some(sources) = entry.get("sources") {
+        sync["sources"] = sources.clone();
+        if let Some(revisions) = entry.get("revisions") {
+            sync["revisions"] = revisions.clone();
+        }
+    }
+
     let patch = json!({
         "operation": {
             "initiatedBy": {
                 "username": "kubeli"
             },
-            "sync": {
-                "revision": revision
-            }
+            "sync": sync
         }
     });
 

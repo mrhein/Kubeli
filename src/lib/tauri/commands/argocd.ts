@@ -40,7 +40,7 @@ export async function getArgoCDApplicationHistory(
 export async function rollbackArgoCDApplication(
   name: string,
   namespace: string,
-  revision: string
+  id: number
 ): Promise<void> {
-  return invoke<void>("rollback_argocd_application", { name, namespace, revision });
+  return invoke<void>("rollback_argocd_application", { name, namespace, id });
 }

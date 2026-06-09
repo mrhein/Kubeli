@@ -133,6 +133,7 @@
     "mutatingWebhooks": "Mutating Webhooks",
     "validatingWebhooks": "Validating Webhooks",
     "applications": "Applications",
+    "argocd": "ArgoCD",
     "soon": "Soon"
   },
   "cluster": {
