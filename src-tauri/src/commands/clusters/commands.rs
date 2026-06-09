@@ -459,15 +459,10 @@ fn spawn_oidc_refresh_task(
     let stop_flag = oidc_state.get_refresh_stop_flag();
 
     tokio::spawn(async move {
-        loop {
-            let expires_at = match oidc_state
-                .token_store
-                .get_token_expiry(&oidc_config.issuer_url, &oidc_config.client_id)
-            {
-                Some(expiry) => expiry,
-                None => break,
-            };
-
+        while let Some(expires_at) = oidc_state
+            .token_store
+            .get_token_expiry(&oidc_config.issuer_url, &oidc_config.client_id)
+        {
             let now = chrono::Utc::now();
             let lifetime = (expires_at - now).num_seconds();
             let refresh_in = std::cmp::max(lifetime * 3 / 4, 5) as u64;

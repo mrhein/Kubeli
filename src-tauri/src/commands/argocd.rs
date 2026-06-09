@@ -327,7 +327,7 @@ pub async fn get_argocd_application_history(
 
     let entries: Vec<ArgoCDHistoryEntry> = history
         .into_iter()
-        .filter_map(|entry| {
+        .map(|entry| {
             let id = entry.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
             let revision = entry
                 .get("revision")
@@ -360,7 +360,7 @@ pub async fn get_argocd_application_history(
                 .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
                 .unwrap_or_default();
 
-            Some(ArgoCDHistoryEntry {
+            ArgoCDHistoryEntry {
                 id,
                 revision,
                 deployed_at,
@@ -368,7 +368,7 @@ pub async fn get_argocd_application_history(
                 source_path,
                 source_target_revision,
                 source_raw,
-            })
+            }
         })
         .collect();
 
