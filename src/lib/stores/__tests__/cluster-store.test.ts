@@ -676,4 +676,52 @@ describe("ClusterStore", () => {
       expect(useClusterStore.getState().isConnected).toBe(false);
     });
   });
+
+  describe("cancelOidcAuth", () => {
+    it("clears the in-flight OIDC listener and timeout", () => {
+      const unlisten = jest.fn();
+      const timeout = setTimeout(() => {}, 100_000);
+      useClusterStore.setState({
+        oidcPendingContext: "test-context",
+        oidcCallbackUnlisten: unlisten,
+        oidcAuthTimeout: timeout,
+      });
+
+      useClusterStore.getState().cancelOidcAuth();
+
+      // The listener is removed exactly once (prevents duplicate oidc-callback
+      // listeners accumulating across repeated connects) and all handles reset.
+      expect(unlisten).toHaveBeenCalledTimes(1);
+      const state = useClusterStore.getState();
+      expect(state.oidcPendingContext).toBeNull();
+      expect(state.oidcCallbackUnlisten).toBeNull();
+      expect(state.oidcAuthTimeout).toBeNull();
+    });
+
+    it("is a no-op when no OIDC auth is in flight", () => {
+      useClusterStore.setState({
+        oidcPendingContext: null,
+        oidcCallbackUnlisten: null,
+        oidcAuthTimeout: null,
+      });
+      expect(() => useClusterStore.getState().cancelOidcAuth()).not.toThrow();
+    });
+
+    it("is invoked by disconnect to tear down a pending browser flow", async () => {
+      const unlisten = jest.fn();
+      mockDisconnectCluster.mockResolvedValue(undefined);
+      useClusterStore.setState({
+        oidcPendingContext: "test-context",
+        oidcCallbackUnlisten: unlisten,
+        oidcAuthTimeout: setTimeout(() => {}, 100_000),
+      });
+
+      await act(async () => {
+        await useClusterStore.getState().disconnect();
+      });
+
+      expect(unlisten).toHaveBeenCalledTimes(1);
+      expect(useClusterStore.getState().oidcPendingContext).toBeNull();
+    });
+  });
 });

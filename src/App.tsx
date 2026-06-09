@@ -89,15 +89,20 @@ export default function Home() {
         const pfStore = usePortForwardStore.getState();
         const activeForwards = pfStore.forwards.filter((f) => f.status === "connected");
         for (const fwd of activeForwards) {
-          await pfStore.stopForward(fwd.forward_id);
-          await pfStore.startForward(
-            fwd.namespace,
-            fwd.name,
-            fwd.target_type,
-            fwd.target_port,
-            fwd.local_port,
-            fwd.port_name
-          );
+          // Per-forward try/catch so one failure doesn't strand the rest.
+          try {
+            await pfStore.stopForward(fwd.forward_id);
+            await pfStore.startForward(
+              fwd.namespace,
+              fwd.name,
+              fwd.target_type,
+              fwd.target_port,
+              fwd.local_port,
+              fwd.port_name
+            );
+          } catch (err) {
+            console.error(`Failed to restart port-forward ${fwd.forward_id} after OIDC refresh`, err);
+          }
         }
         const clusterStore = useClusterStore.getState();
         if (clusterStore.namespaceSource === "auto") {

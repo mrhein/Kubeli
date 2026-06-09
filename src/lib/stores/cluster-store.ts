@@ -47,6 +47,11 @@ interface ClusterState {
   namespaceWatchId: string | null;
   namespaceWatchUnlisten: UnlistenFn | null;
 
+  // OIDC interactive auth (browser flow in progress)
+  oidcPendingContext: string | null;
+  oidcCallbackUnlisten: UnlistenFn | null;
+  oidcAuthTimeout: ReturnType<typeof setTimeout> | null;
+
   // Auto-reconnect
   reconnectAttempts: number;
   isReconnecting: boolean;
@@ -58,6 +63,8 @@ interface ClusterState {
   fetchClusters: () => Promise<void>;
   connect: (context: string) => Promise<ConnectionStatus>;
   disconnect: () => Promise<void>;
+  /** Cancel any in-flight OIDC browser auth, clearing its listener and timeout. */
+  cancelOidcAuth: () => void;
   refreshConnectionStatus: () => Promise<void>;
   fetchNamespaces: () => Promise<void>;
   setSelectedNamespaces: (namespaces: string[]) => void;
@@ -118,6 +125,11 @@ export const useClusterStore = create<ClusterState>((set, get) => ({
   // Namespace watch initial state
   namespaceWatchId: null,
   namespaceWatchUnlisten: null,
+
+  // OIDC interactive auth initial state
+  oidcPendingContext: null,
+  oidcCallbackUnlisten: null,
+  oidcAuthTimeout: null,
 
   // Auto-reconnect initial state
   reconnectAttempts: 0,
@@ -200,27 +212,45 @@ export const useClusterStore = create<ClusterState>((set, get) => ({
         }
         
         if (authResult.status === "auth_pending") {
+          // Clear any previous in-flight OIDC auth so repeated connects during
+          // the browser wait cannot accumulate duplicate listeners/timeouts.
+          get().cancelOidcAuth();
+
           const OIDC_TIMEOUT_MS = 120_000;
           const { listen } = await import("@tauri-apps/api/event");
-          let unlistenFn: (() => void) | null = null;
+          // Register the listener BEFORE arming the timeout so a listen()
+          // rejection can't leave an orphaned timeout, and store both on the
+          // store so disconnect()/a later connect() can cancel them.
+          const unlisten = await listen<{ code: string; state: string }>(
+            "oidc-callback",
+            async (event) => {
+              get().cancelOidcAuth();
+              try {
+                const callbackResult = await oidcHandleCallback(
+                  event.payload.code,
+                  event.payload.state
+                );
+                if (callbackResult.status === "authenticated") {
+                  await get().connect(context);
+                } else {
+                  set({ error: toKubeliError("OIDC authentication failed"), isLoading: false });
+                }
+              } catch {
+                set({ error: toKubeliError("OIDC authentication failed"), isLoading: false });
+              }
+            }
+          );
           const timeout = setTimeout(() => {
-            unlistenFn?.();
+            get().cancelOidcAuth();
             set({
               error: toKubeliError("OIDC authentication timed out — no response from browser"),
               isLoading: false,
             });
           }, OIDC_TIMEOUT_MS);
-          unlistenFn = await listen<{ code: string; state: string }>("oidc-callback", async (event) => {
-            clearTimeout(timeout);
-            unlistenFn?.();
-            try {
-              const callbackResult = await oidcHandleCallback(event.payload.code, event.payload.state);
-              if (callbackResult.status === "authenticated") {
-                await get().connect(context);
-              }
-            } catch {
-              set({ error: toKubeliError("OIDC authentication failed"), isLoading: false });
-            }
+          set({
+            oidcPendingContext: context,
+            oidcCallbackUnlisten: unlisten,
+            oidcAuthTimeout: timeout,
           });
           return status;
         }
@@ -276,8 +306,16 @@ export const useClusterStore = create<ClusterState>((set, get) => ({
     }
   },
 
+  cancelOidcAuth: () => {
+    const { oidcAuthTimeout, oidcCallbackUnlisten } = get();
+    if (oidcAuthTimeout) clearTimeout(oidcAuthTimeout);
+    oidcCallbackUnlisten?.();
+    set({ oidcAuthTimeout: null, oidcCallbackUnlisten: null, oidcPendingContext: null });
+  },
+
   disconnect: async () => {
-    // Stop health monitoring and namespace watch before disconnecting
+    // Stop any in-flight OIDC auth, health monitoring and namespace watch first
+    get().cancelOidcAuth();
     get().stopHealthMonitoring();
     get().stopNamespaceWatch();
     useResourceCacheStore.getState().clearCache();
