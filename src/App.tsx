@@ -109,10 +109,16 @@ export default function Home() {
           await clusterStore.stopNamespaceWatch();
           await clusterStore.startNamespaceWatch();
         }
-      }).then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      });
+      })
+        .then((fn) => {
+          if (cancelled) fn();
+          else unlisten = fn;
+        })
+        .catch((err) => {
+          console.error("Failed to register oidc-token-refreshed listener", err);
+        });
+    }).catch((err) => {
+      console.error("Failed to load Tauri event module for OIDC refresh", err);
     });
     return () => {
       cancelled = true;

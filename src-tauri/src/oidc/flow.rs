@@ -183,19 +183,7 @@ impl OidcFlowManager {
         let token_response: CoreTokenResponse =
             match refresh_token_request.request_async(&http_client).await {
                 Ok(response) => response,
-                Err(e) => {
-                    // Only `invalid_grant` means the refresh token itself is dead
-                    // and must be discarded. Network errors, IdP 5xx, parse errors
-                    // etc. are transient and must NOT cause us to delete a still
-                    // valid refresh token (a network error's message never contains
-                    // the OAuth2 `invalid_grant` error code).
-                    let message = format!("Failed to refresh OIDC token: {}", e);
-                    return Err(if message.contains("invalid_grant") {
-                        RefreshError::Terminal(message)
-                    } else {
-                        RefreshError::Transient(message)
-                    });
-                }
+                Err(e) => return Err(classify_refresh_error(e)),
             };
 
         let id_token_obj = token_response.extra_fields().id_token().ok_or_else(|| {
@@ -246,14 +234,43 @@ async fn discover_provider(issuer_url: &str) -> Result<CoreProviderMetadata, Str
         .map_err(|e| format!("Failed OIDC discovery for issuer {}: {}", issuer_url, e))
 }
 
+/// Classify a token-refresh error. Only a server response carrying the
+/// `invalid_grant` OAuth2 error code means the refresh token is dead and must be
+/// discarded; transport errors, parse errors, and other server error codes are
+/// transient and must NOT cause us to drop a still-valid refresh token. We match
+/// the structured `ServerResponse` variant and inspect only the error response
+/// (which carries the code) rather than substring-matching the whole formatted
+/// error chain.
+fn classify_refresh_error<RE, T>(error: openidconnect::RequestTokenError<RE, T>) -> RefreshError
+where
+    RE: std::error::Error + 'static,
+    T: openidconnect::ErrorResponse + std::fmt::Display,
+{
+    let message = format!("Failed to refresh OIDC token: {}", error);
+    let is_invalid_grant = matches!(
+        &error,
+        openidconnect::RequestTokenError::ServerResponse(resp)
+            if resp.to_string().contains("invalid_grant")
+    );
+    if is_invalid_grant {
+        RefreshError::Terminal(message)
+    } else {
+        RefreshError::Transient(message)
+    }
+}
+
 fn parse_jwt_expiry(jwt: &str) -> Result<DateTime<Utc>, String> {
-    let mut segments = jwt.split('.');
-    let _header = segments
-        .next()
-        .ok_or_else(|| "Malformed id_token: missing header segment".to_string())?;
-    let payload = segments
-        .next()
-        .ok_or_else(|| "Malformed id_token: missing payload segment".to_string())?;
+    // A compact-serialization JWT/JWS has exactly three dot-separated segments
+    // (header.payload.signature). Reject anything else so a malformed token like
+    // "header.payload" can't slip through with a parseable exp.
+    let segments: Vec<&str> = jwt.split('.').collect();
+    if segments.len() != 3 {
+        return Err(format!(
+            "Malformed id_token: expected 3 JWT segments, got {}",
+            segments.len()
+        ));
+    }
+    let payload = segments[1];
 
     let payload_bytes = URL_SAFE_NO_PAD
         .decode(payload)
@@ -296,8 +313,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_token_with_too_few_segments() {
+    fn rejects_tokens_without_exactly_three_segments() {
+        // 1 segment, 2 segments (no signature) and 4 segments must all be rejected.
         assert!(parse_jwt_expiry("only-header").is_err());
+        let header = URL_SAFE_NO_PAD.encode(b"{\"alg\":\"none\"}");
+        let payload = URL_SAFE_NO_PAD.encode(b"{\"exp\":1700000000}");
+        assert!(parse_jwt_expiry(&format!("{header}.{payload}")).is_err());
+        assert!(parse_jwt_expiry(&format!("{header}.{payload}.sig.extra")).is_err());
     }
 
     #[test]
