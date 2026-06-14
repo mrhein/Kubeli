@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
+use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use openidconnect::core::{
@@ -48,7 +48,7 @@ pub struct OidcFlowManager {
 
 impl OidcFlowManager {
     pub async fn start_auth(&self, config: &OidcExecConfig) -> Result<String, String> {
-        let provider_metadata = discover_provider(&config.issuer_url).await?;
+        let provider_metadata = discover_provider(config).await?;
         let redirect_uri = RedirectUrl::new("kubeli://oidc/callback".to_string())
             .map_err(|e| format!("Invalid OIDC redirect URL: {}", e))?;
         let client = CoreClient::from_provider_metadata(
@@ -110,7 +110,7 @@ impl OidcFlowManager {
             return Err("Invalid OIDC state parameter".to_string());
         }
 
-        let provider_metadata = discover_provider(&pending_auth.config.issuer_url).await?;
+        let provider_metadata = discover_provider(&pending_auth.config).await?;
         let redirect_uri = RedirectUrl::new("kubeli://oidc/callback".to_string())
             .map_err(|e| format!("Invalid OIDC redirect URL: {}", e))?;
         let client = CoreClient::from_provider_metadata(
@@ -124,7 +124,7 @@ impl OidcFlowManager {
             .exchange_code(AuthorizationCode::new(code.to_string()))
             .map_err(|e| format!("Failed to create OIDC code exchange request: {}", e))?;
 
-        let http_client = build_http_client()?;
+        let http_client = build_http_client(&pending_auth.config)?;
         let token_response: CoreTokenResponse = code_token_request
             .set_pkce_verifier(pending_auth.pkce_verifier)
             .request_async(&http_client)
@@ -160,7 +160,7 @@ impl OidcFlowManager {
         config: &OidcExecConfig,
         refresh_token: &str,
     ) -> Result<OidcTokens, RefreshError> {
-        let provider_metadata = discover_provider(&config.issuer_url)
+        let provider_metadata = discover_provider(config)
             .await
             .map_err(RefreshError::Transient)?;
         let redirect_uri = RedirectUrl::new("kubeli://oidc/callback".to_string())
@@ -179,7 +179,7 @@ impl OidcFlowManager {
                 RefreshError::Transient(format!("Failed to create OIDC refresh request: {}", e))
             })?;
 
-        let http_client = build_http_client().map_err(RefreshError::Transient)?;
+        let http_client = build_http_client(config).map_err(RefreshError::Transient)?;
         let token_response: CoreTokenResponse =
             match refresh_token_request.request_async(&http_client).await {
                 Ok(response) => response,
@@ -217,21 +217,58 @@ impl Default for OidcFlowManager {
     }
 }
 
-fn build_http_client() -> Result<reqwest::Client, String> {
-    reqwest::ClientBuilder::new()
-        .redirect(reqwest::redirect::Policy::none())
+fn build_http_client(config: &OidcExecConfig) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::ClientBuilder::new().redirect(reqwest::redirect::Policy::none());
+
+    // The bundled root store only trusts public CAs, so an IdP behind a private
+    // CA (corporate Keycloak/Dex, or the local test rig) needs its CA added
+    // explicitly — mirroring kubelogin's --certificate-authority(-data) /
+    // --insecure-skip-tls-verify.
+    if config.insecure_skip_tls_verify {
+        builder = builder.danger_accept_invalid_certs(true);
+    } else if let Some(pem) = resolve_ca_pem(config)? {
+        for cert in reqwest::Certificate::from_pem_bundle(&pem)
+            .map_err(|e| format!("Invalid OIDC certificate authority: {}", e))?
+        {
+            builder = builder.add_root_certificate(cert);
+        }
+    }
+
+    builder
         .build()
         .map_err(|e| format!("Failed to create OIDC HTTP client: {}", e))
 }
 
-async fn discover_provider(issuer_url: &str) -> Result<CoreProviderMetadata, String> {
-    let issuer = IssuerUrl::new(issuer_url.to_string())
+/// Resolve the configured CA bundle to PEM bytes: inline base64 data takes
+/// precedence over a file path; returns `None` when neither is set.
+fn resolve_ca_pem(config: &OidcExecConfig) -> Result<Option<Vec<u8>>, String> {
+    if let Some(data) = &config.certificate_authority_data {
+        let pem = STANDARD
+            .decode(data.trim())
+            .map_err(|e| format!("Invalid --certificate-authority-data (base64): {}", e))?;
+        return Ok(Some(pem));
+    }
+    if let Some(path) = &config.certificate_authority {
+        let pem = std::fs::read(path)
+            .map_err(|e| format!("Failed to read OIDC CA file '{}': {}", path, e))?;
+        return Ok(Some(pem));
+    }
+    Ok(None)
+}
+
+async fn discover_provider(config: &OidcExecConfig) -> Result<CoreProviderMetadata, String> {
+    let issuer = IssuerUrl::new(config.issuer_url.clone())
         .map_err(|e| format!("Invalid OIDC issuer URL: {}", e))?;
 
-    let http_client = build_http_client()?;
+    let http_client = build_http_client(config)?;
     CoreProviderMetadata::discover_async(issuer, &http_client)
         .await
-        .map_err(|e| format!("Failed OIDC discovery for issuer {}: {}", issuer_url, e))
+        .map_err(|e| {
+            format!(
+                "Failed OIDC discovery for issuer {}: {}",
+                config.issuer_url, e
+            )
+        })
 }
 
 /// Classify a token-refresh error. Only a server response carrying the

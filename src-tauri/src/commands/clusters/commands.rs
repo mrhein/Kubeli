@@ -193,6 +193,11 @@ pub async fn connect_cluster(
         if let Some(oidc_config) = detect_oidc_exec(&kubeconfig, user) {
             let oidc_state: State<'_, Arc<OidcState>> = app.state();
 
+            // Remember the CA/TLS settings so the interactive browser flow
+            // (oidc_start_auth, which only gets issuer/client/scopes from the UI)
+            // can trust a private-CA IdP too.
+            oidc_state.remember_config(&oidc_config);
+
             let token = resolve_oidc_token(&app, &oidc_state, &oidc_config).await;
 
             match token {

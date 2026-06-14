@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
@@ -15,6 +16,11 @@ pub struct OidcState {
     /// and the background refresh loop) cannot double-consume a rotating refresh
     /// token. See [`OidcState::refresh`].
     pub refresh_lock: tokio::sync::Mutex<()>,
+    /// Full exec config (including TLS/CA settings) remembered from the kubeconfig
+    /// at connect time, keyed by issuer+client. The interactive `oidc_start_auth`
+    /// command only receives issuer/client/scopes from the frontend, so it looks
+    /// the CA settings back up here rather than round-tripping them through the UI.
+    pub configs: std::sync::Mutex<HashMap<String, OidcExecConfig>>,
 }
 
 impl OidcState {
@@ -38,6 +44,39 @@ impl OidcState {
         if let Ok(mut guard) = self.refresh_stop.lock() {
             guard.store(true, Ordering::Relaxed);
             *guard = Arc::new(AtomicBool::new(false));
+        }
+    }
+
+    /// Remember the full exec config (TLS/CA settings included) detected from the
+    /// kubeconfig at connect time, keyed by issuer+client.
+    pub fn remember_config(&self, config: &OidcExecConfig) {
+        let key = OidcTokenStore::cache_key(&config.issuer_url, &config.client_id);
+        if let Ok(mut guard) = self.configs.lock() {
+            guard.insert(key, config.clone());
+        }
+    }
+
+    /// Recover the remembered config (with its CA/TLS settings) for an
+    /// issuer+client. Falls back to a config built from the given parameters when
+    /// nothing was remembered, so the interactive flow degrades to the public-CA
+    /// behaviour rather than failing.
+    pub fn config_for(
+        &self,
+        issuer_url: &str,
+        client_id: &str,
+        extra_scopes: Vec<String>,
+    ) -> OidcExecConfig {
+        let key = OidcTokenStore::cache_key(issuer_url, client_id);
+        if let Ok(guard) = self.configs.lock() {
+            if let Some(config) = guard.get(&key) {
+                return config.clone();
+            }
+        }
+        OidcExecConfig {
+            issuer_url: issuer_url.to_string(),
+            client_id: client_id.to_string(),
+            extra_scopes,
+            ..Default::default()
         }
     }
 
@@ -105,6 +144,7 @@ impl Default for OidcState {
             token_store: OidcTokenStore::default(),
             refresh_stop: std::sync::Mutex::new(Arc::new(AtomicBool::new(false))),
             refresh_lock: tokio::sync::Mutex::new(()),
+            configs: std::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -135,11 +175,9 @@ pub async fn oidc_start_auth(
         });
     }
 
-    let config = OidcExecConfig {
-        issuer_url: issuer_url.clone(),
-        client_id: client_id.clone(),
-        extra_scopes,
-    };
+    // Recover the CA/TLS settings the frontend does not carry (remembered at
+    // connect time), falling back to issuer/client/scopes only.
+    let config = oidc_state.config_for(&issuer_url, &client_id, extra_scopes);
 
     // Try a cached/refreshed token before opening the browser. refresh()
     // serializes with the background refresh loop and only discards the stored
