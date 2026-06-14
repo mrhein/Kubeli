@@ -39,7 +39,7 @@ futures-util = "0.3"
 
 # HTTP & Networking
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-hyper = "1.9"
+hyper = "1.10"
 hyper-util = "0.1"
 tower = "0.5"
 tower-http = "0.6"
@@ -73,12 +73,12 @@ rand = "0.10"
 tauri-plugin-process = "2.3"
 flate2 = "1.1"
 url = "2.5"
-uuid = { version = "1.19", features = ["v4"] }
+uuid = { version = "1.23", features = ["v4"] }
 regex = "1.12"
 percent-encoding = "2.3"
 
 # SQLite for AI session persistence
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # MCP (Model Context Protocol) Server
 rmcp = { version = "1.7", features = ["server", "transport-io", "macros"] }
